@@ -1,135 +1,146 @@
 # 🤖 Arduino Mega 2560 Line Follower Robot (PID Based)
 
-> “Một con robot nhỏ bé, một vài cảm biến, một đoạn code… nhưng lại mở ra cả thế giới về điều khiển, tối ưu, và đam mê kỹ thuật.”
+> “A small robot, a few sensors, a piece of code… yet it opens the door to a whole world of control, optimization, and engineering passion.”
 
-Dự án này là một **line follower robot** sử dụng **Arduino Mega 2560** kết hợp **5 cảm biến hồng ngoại** và điều khiển bằng **thuật toán PID**.  
-Robot có thể vừa **đứng yên căn chỉnh chính xác** với vạch line (ALIGN), vừa **chạy bám line mượt mà và nhanh chóng** (RUN) chỉ với **một bộ PID duy nhất**.  
+This project is a **line follower robot** built with an **Arduino Mega 2560**, **5 infrared sensors**, and a **PID controller**.  
+The robot is designed with **two distinct modes of operation** that share a **single PID control loop**:
 
-Mục tiêu của project không chỉ là để robot chạy đúng đường, mà còn là cách để rèn luyện tư duy: từ xử lý tín hiệu nhiễu, chống bão hòa, đến thiết kế hệ thống điều khiển ổn định.  
+- **ALIGN mode**: The robot remains still and rotates in place until it is perfectly aligned with the track.  
+- **RUN mode**: The robot moves forward smoothly, automatically reducing speed on sharp turns to maintain line tracking stability.  
+
+The deeper goal of this project is not just to make a robot follow a line. It is a platform for learning about **real-time embedded systems**, **control theory**, and the **practical art of tuning and optimization**. It shows how a handful of sensors, motors, and some clever programming can lead to a robot that “thinks” about its path.
 
 ---
 
-## ⚙️ Phần cứng
+## ⚙️ Hardware Components
 
-- **Arduino Mega 2560** – trung tâm điều khiển
-- **5 cảm biến line digital** – đọc trạng thái line qua ngắt
-- **Driver cầu H kép** – điều khiển hai động cơ DC
-- **2 động cơ DC** – bánh trái và phải
-- **Nút nhấn** (D21) – chuyển chế độ RUN ↔ ALIGN
-- **Nguồn cấp** – pin LiPo hoặc pack NiMH
+- **Arduino Mega 2560** – the main controller with multiple external interrupts  
+- **5 digital infrared line sensors** – detect black line against light background  
+- **Dual H-Bridge motor driver** – controls two DC motors with PWM speed signals  
+- **2 DC motors with wheels** – provide traction and movement  
+- **Push button** (D21) – toggles between ALIGN and RUN modes  
+- **Battery pack** – LiPo or NiMH for mobility  
 
 ### Pin Mapping
 
-| Tín hiệu        | Mega 2560 pin |
-|-----------------|---------------|
-| PI1             | D2  (INT4)    |
-| PI2             | D3  (INT5)    |
-| PI3             | D18 (INT3)    |
-| PI4             | D19 (INT2)    |
-| PI5             | D20 (INT1)    |
-| RUN button      | D21 (INT0)    |
-| Motor L IN1     | D8            |
-| Motor L IN2     | D9            |
-| Motor R IN1     | D10           |
-| Motor R IN2     | D11           |
-| ENA (PWM trái)  | D12           |
-| ENB (PWM phải)  | D13           |
+| Signal         | Mega 2560 Pin |
+|----------------|---------------|
+| PI1            | D2  (INT4)    |
+| PI2            | D3  (INT5)    |
+| PI3            | D18 (INT3)    |
+| PI4            | D19 (INT2)    |
+| PI5            | D20 (INT1)    |
+| RUN button     | D21 (INT0)    |
+| Motor L IN1    | D8            |
+| Motor L IN2    | D9            |
+| Motor R IN1    | D10           |
+| Motor R IN2    | D11           |
+| ENA (PWM left) | D12           |
+| ENB (PWM right)| D13           |
 
-> Nếu robot quay sai hướng, chỉ cần đảo lại `SENSOR_LEFT_IS_PI1` hoặc đổi dây IN1/IN2.
+> If the robot turns the wrong way, simply flip the `SENSOR_LEFT_IS_PI1` constant in code or swap motor driver wires.
 
 ---
 
-## 🎯 Nguyên lý điều khiển
+## 🎯 Control Principle
 
-Robot đọc trạng thái line từ 5 cảm biến (trọng số từ -2..+2).  
-Sai số line (`error`) được đưa vào bộ PID:
+The robot continuously calculates an **error value** based on sensor readings. Each of the 5 sensors is given a weight (-2 to +2), and the error is the weighted average of active sensors. This error feeds into a **PID controller**:
 
-- **Proportional (Kp)**: phản ứng nhanh với sai số
-- **Integral (Ki)**: loại bỏ sai lệch lâu dài
-- **Derivative (Kd)**: giảm rung, ổn định cua gấp
-- **Anti-Windup (Kaw)**: ngăn tích phân trôi khi bão hòa
-- **Low-pass filter**: lọc nhiễu đạo hàm
+- **Proportional (Kp)**: immediate correction proportional to error  
+- **Integral (Ki)**: accumulates small persistent errors to remove long-term drift  
+- **Derivative (Kd)**: predicts future error by measuring rate of change, reducing overshoot and oscillation  
+- **Anti-Windup (Kaw)**: prevents integral overflow when actuators are saturated  
+- **Low-pass derivative filter**: smooths out sensor noise before applying derivative term  
 
-Từ lệnh PID (`u_cmd`), robot tính PWM cho hai bánh:
-```ino
+Motor PWM outputs are computed as:
+
+```cpp
 pwmL = base - u_cmd
 pwmR = base + u_cmd
 ```
 
-- **ALIGN**: base=0 → robot đứng yên xoay về line  
-- **RUN**: base giảm dần khi cua gắt (theo |u|), giúp bám line chắc hơn
+- In **ALIGN mode**, base = 0 → robot rotates until centered  
+- In **RUN mode**, base speed is dynamically reduced depending on |u| (turn sharpness), allowing high speed on straight lines but careful tracking in curves  
+
+This creates a robot that is both **fast and stable**.
 
 ---
 
-## 🚀 Cách sử dụng
+## 🚀 Getting Started
 
-1. **Nạp code** vào Arduino Mega 2560.
-2. Kết nối robot với track line (màu nền sáng, line đen).
-3. Mở Serial Monitor (115200 baud).
-4. Khởi động robot → mặc định ở chế độ **ALIGN**.
-5. Nhấn nút D21 để chuyển sang **RUN**.
-6. Tuning tham số PID qua Serial để đạt hiệu suất mong muốn.
-
----
-
-## 🎛️ Serial Command (Tuning trực tiếp)
-
-- `show` – in tham số hiện tại
-- `kp 60` – đặt Kp = 60
-- `ki +0.01` – tăng Ki thêm 0.01
-- `kd 20` – đặt Kd = 20
-- `pid 55 0 25` – đặt Kp=55, Ki=0, Kd=25
-- `base 120` – đặt tốc độ cơ bản
-- `kspeed 0.6` – đặt hệ số giảm tốc khi cua
-- `aligndb 0.15` – chỉnh deadband ALIGN
-- `mode run | align | auto` – ép chế độ
+1. Flash the provided code to your **Arduino Mega 2560**.  
+2. Place the robot on a light-colored track with a black line.  
+3. Open the Serial Monitor at **115200 baud**.  
+4. On startup, the robot is in **ALIGN mode**.  
+5. Press the D21 button to switch between **RUN** and **ALIGN**.  
+6. Use serial commands to tune PID parameters in real time.  
 
 ---
 
-## 🖥️ Serial Log
+## 🎛️ Serial Commands (Live Tuning)
 
-Ví dụ khi robot chạy:
+- `show` – display current parameters  
+- `kp 60` – set Kp = 60  
+- `ki +0.01` – increase Ki by 0.01  
+- `kd 20` – set Kd = 20  
+- `pid 55 0 25` – set Kp=55, Ki=0, Kd=25  
+- `base 120` – set base speed  
+- `kspeed 0.6` – set speed reduction factor on turns  
+- `aligndb 0.15` – set ALIGN deadband  
+- `mode run | align | auto` – force mode  
 
-```ino
-RUN bits=11100 e=-0.33 u=-45 base=120 L=75 R=165
-ALIGN bits=00100 e=0.00 u=0 base=0 L=0 R=0
+This interactive tuning lets you find the perfect balance between **speed** and **stability**.
+
+---
+
+## 🖥️ Serial Log Example
+
+```text
+RUN   bits=11100 e=-0.33 u=-45 base=120 L=75 R=165
+ALIGN bits=00100 e=0.00  u=0   base=0   L=0  R=0
 ```
 
-- `bits` = 5 sensor (1 = line đen)  
-- `e` = error (sai lệch line)  
-- `u` = lệnh PID  
-- `base` = tốc cơ bản  
-- `L/R` = PWM hai bánh  
+- `bits` – 5 sensor states (1 = black line detected)  
+- `e` – error value (-2 to +2)  
+- `u` – PID controller output  
+- `base` – current base speed  
+- `L/R` – PWM signals sent to motors  
 
 ---
 
-## 🔧 Bảng Tuning Nhanh
+## 🔧 Quick Tuning Guide
 
-| Triệu chứng                        | Giải pháp |
-|------------------------------------|-----------|
-| Robot rung mạnh khi chạy thẳng     | Tăng **Kd**, giảm **Kp** |
-| Robot lắc lư chậm khi vào line     | Tăng **Kp** |
-| Robot cua chậm, dễ trượt khỏi line | Tăng **Kp**, giảm **kspeed** |
-| Robot không nhúc nhích             | Tăng **minPWM** |
-| Robot rung ở ALIGN                 | Tăng **alignDeadbandE** |
+| Symptom                           | Adjustment |
+|-----------------------------------|------------|
+| Vibrates on straight line         | Increase **Kd**, decrease **Kp** |
+| Corrects too slowly               | Increase **Kp** |
+| Misses curves                     | Increase **Kp**, decrease **kspeed** |
+| Doesn’t move                      | Increase **minPWM** |
+| Shaky in ALIGN mode               | Increase **alignDeadbandE** |
+
+> Tuning is as much art as science. The right values depend on your motors, wheels, track surface, and even battery level.
 
 ---
 
-## 🌱 Ý nghĩa dự án
+## 🌱 Why This Project Matters
 
-Dự án này không chỉ là một chiếc xe dò line. Nó là nơi hội tụ của:
+This line follower is **more than just a toy**. It demonstrates the practical intersection of multiple engineering disciplines:
 
-- **Điện tử**: đọc cảm biến, điều khiển động cơ
-- **Điều khiển tự động**: PID, chống bão hòa, lọc nhiễu
-- **Kỹ năng thực chiến**: tuning, quan sát, cải tiến
-- **Tinh thần sáng tạo**: từ vài linh kiện rẻ tiền tạo ra một hệ thống “tự ra quyết định”
+- **Electronics**: reading digital sensors, driving motors with PWM, debouncing inputs  
+- **Control theory**: implementing PID, filtering signals, preventing windup  
+- **Embedded programming**: using interrupts, timers, and efficient code on microcontrollers  
+- **Problem solving**: adjusting parameters, testing on real tracks, iterating to improve performance  
 
-Một chiếc robot nhỏ trên mặt đường, nhưng là một bước lớn trong hành trình học tập kỹ thuật.
+It is a **hands-on learning tool**:  
+- For beginners, it’s a fun way to understand the basics of automation.  
+- For advanced learners, it’s a testbed for experimenting with **adaptive control, sensor fusion, or even machine learning**.  
+
+In short: A small robot on a simple line, but a **big step in the journey of mastering robotics and automation**.
 
 ---
 
 ## 📄 License
 
-MIT License – thoải mái sử dụng, học tập, và cải tiến.
+MIT License – free to use, learn from, and improve.
 
 ---
